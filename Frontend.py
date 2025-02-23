@@ -8,8 +8,6 @@ import webbrowser
 from datetime import datetime
 from Backend import fetch_skins, tracked_skins, saved_skins, save_tracked_skins, save_saved_skins
 import requests
-import re
-from urllib.parse import unquote
 from playwright_sniper import snipe_skin as playwright_snipe
 
 class ModernButton(ttk.Button):
@@ -657,9 +655,11 @@ class SkinTrackerGUI:
                 message_type, content = self.update_queue.get_nowait()
                 
                 if message_type == "message":
-                    # Normal tracking output (existing code)
+                    # Normal tracking output
                     self.output_text.insert(tk.END, content["header"])
                     self.output_text.insert(tk.END, content["details"])
+                    
+                    # Update link handling
                     link_text, url = content["link"]
                     link_start = self.output_text.index("end-1c")
                     self.output_text.insert(tk.END, link_text, "hyperlink")
@@ -671,7 +671,11 @@ class SkinTrackerGUI:
                                                 underline=1)
                     self.output_text.tag_bind(tag_name, "<Button-1>",
                                            lambda e, url=url: webbrowser.open(url))
+                    
+                    # Update buttons with corrected selectors
                     self.output_text.insert(tk.END, " | ")
+                    
+                    # Quick Save button
                     save_text, listing_no = content["save_button"]
                     save_start = self.output_text.index("end-1c")
                     self.output_text.insert(tk.END, save_text, "save_button")
@@ -683,6 +687,8 @@ class SkinTrackerGUI:
                                                 underline=1)
                     self.output_text.tag_bind(save_tag, "<Button-1>",
                                            lambda e, id=listing_no: self.quick_save_skin(id))
+                    
+                    # Snipe button with updated handling
                     self.output_text.insert(tk.END, " | ")
                     snipe_start = self.output_text.index("end-1c")
                     self.output_text.insert(tk.END, "Snipe!", "snipe_button")
@@ -692,17 +698,24 @@ class SkinTrackerGUI:
                     self.output_text.tag_configure(snipe_tag,
                                                 foreground='#ff4444',
                                                 underline=1)
+                    
+                    # Update snipe button binding with correct URL handling
+                    def create_snipe_callback(id, data):
+                        return lambda e: self.snipe_skin(id)
+                        
                     self.output_text.tag_bind(snipe_tag, "<Button-1>",
-                                           lambda e, id=listing_no: self.snipe_skin(id))
-                    # Hover effects for buttons
+                                           create_snipe_callback(listing_no, self.current_skin_data[listing_no]))
+                    
+                    # Hover effects
                     for tag in [save_tag, snipe_tag]:
                         self.output_text.tag_bind(tag, "<Enter>",
                                                lambda e: self.output_text.configure(cursor="hand2"))
                         self.output_text.tag_bind(tag, "<Leave>",
                                                lambda e: self.output_text.configure(cursor=""))
+                    
                     self.output_text.insert(tk.END, "\n")
                     self.output_text.see(tk.END)
-                
+                    
                 elif message_type == "high_discount":
                     widget = self.high_discount_output
                     widget.insert(tk.END, content["header"])
@@ -788,7 +801,8 @@ class SkinTrackerGUI:
         if listing_no in self.current_skin_data:
             skin_data = self.current_skin_data[listing_no]
             try:
-                product_url = skin_data.get("buylink", skin_data["link"])
+                # Get the correct URL from the skin data
+                product_url = skin_data["link"]
                 
                 # Use Playwright to handle the purchase
                 success, message = playwright_snipe(product_url, listing_no)
@@ -801,47 +815,6 @@ class SkinTrackerGUI:
             except Exception as e:
                 print(f"Full error: {str(e)}")
                 messagebox.showerror("Error", f"Unexpected error while sniping skin: {str(e)}")
-
-    def _extract_csrf_token(self, html_content, session):
-        """Helper method to extract CSRF token from HTML or session cookies"""
-        # Method 1: Check the session cookie
-        token = session.cookies.get('XSRF-TOKEN')
-        if token:
-            token = unquote(token)
-            if token:
-                print(f"Token from cookie: {token}")
-                return token
-        # Method 2: Use BeautifulSoup to find a meta tag
-        try:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html_content, 'html.parser')
-            meta = soup.find('meta', attrs={'name': 'csrf-token'})
-            if meta and meta.get('content'):
-                print(f"Token from meta tag: {meta['content']}")
-                return meta['content']
-        except ImportError:
-            pass
-        # Method 3: Regex to find meta or input token
-        regex = re.search(
-            r'<meta[^>]*?name=[\'"](?:csrf-token|_token)[\'"][^>]*?content=["\']([^"\']+)["\']', 
-            html_content, re.I
-        )
-        if (regex):
-            print(f"Token from regex meta: {regex.group(1)}")
-            return regex.group(1)
-        regex = re.search(
-            r'<input[^>]*?name=["\'](?:csrf|_token)["\'][^>]*?value=["\']([^"\']+)["\']', 
-            html_content, re.I
-        )
-        if (regex):
-            print(f"Token from regex input: {regex.group(1)}")
-            return regex.group(1)
-        # Method 4: Try to find token in JavaScript variables
-        regex = re.search(r'(?:csrf_token|_token)[\'"]\s*:\s*[\'"]([^"\']+)[\'"]', html_content)
-        if (regex):
-            print(f"Token from JS variable: {regex.group(1)}")
-            return regex.group(1)
-        return None
 
     def save_tracked_skins(self):
         try:

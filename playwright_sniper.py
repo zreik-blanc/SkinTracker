@@ -9,21 +9,11 @@ import webbrowser
 def start_arc_browser():
     """Start Arc browser with remote debugging enabled"""
     try:
-        # Don't kill existing Arc sessions, just try to connect first
         arc_path = "/Applications/Arc.app/Contents/MacOS/Arc"
-        
-        # Start Arc with debugging using a more reliable method
-        debug_cmd = f"""
-        osascript -e 'tell application "Arc" to quit'
-        sleep 1
-        {arc_path} --no-startup-window --remote-debugging-port=9222 &
-        """
-        
+        debug_cmd = f"{arc_path} --no-startup-window --remote-debugging-port=9222 &"
         os.system(debug_cmd)
-        print("Started Arc with debugging port")
-        time.sleep(3)
+        time.sleep(2)  # Reduced from 3
         return True
-        
     except Exception as e:
         print(f"Error starting Arc: {e}")
         return False
@@ -39,13 +29,12 @@ def snipe_skin(url, listing_no):
                 browser = p.chromium.connect_over_cdp("http://localhost:9222")
             except:
                 start_arc_browser()
-                time.sleep(1)
                 browser = p.chromium.connect_over_cdp("http://localhost:9222")
             
             context = browser.contexts[0]
             
-            # Quick page finding
-            max_retries = 5
+            # Quick page finding with shorter timeout
+            max_retries = 3  # Reduced from 5
             target_page = None
             
             for _ in range(max_retries):
@@ -55,93 +44,46 @@ def snipe_skin(url, listing_no):
                         break
                 if target_page:
                     break
-                time.sleep(0.2)
+                time.sleep(0.1)  # Reduced from 0.2
             
             if not target_page:
                 return False, "Could not find product page"
             
-            # Set wider viewport for better visibility of right-side content
+            # Simplified viewport setup - only essential parts
             target_page.set_viewport_size({"width": 1200, "height": 1080})
-            target_page.evaluate("""
-                () => {
-                    // Scroll to show right side of page content
-                    const pageWidth = document.documentElement.scrollWidth;
-                    window.scrollTo(Math.max(0, pageWidth - 1200), 0);
-                    // Position window on right side of screen
-                    const screenWidth = window.screen.availWidth;
-                    window.moveTo(screenWidth - 1200, 0);
-                    window.resizeTo(1200, window.outerHeight);
-                }
-            """)
             target_page.bring_to_front()
             
-            # Rapid polling for button with timeout
-            start_time = time.time()
-            timeout = 10  # 10 seconds total timeout
-            poll_interval = 0.3  # Check every 0.3 seconds
-            
-            while time.time() - start_time < timeout:
-                # Try direct JavaScript click first (fastest method)
-                try:
-                    clicked = target_page.evaluate("""
-                    () => {
-                        // Try exact button match first
-                        const exactButton = document.querySelector('button.btn.btn-bng-white.btn-lg.font-weight-bold.w-100');
-                        if (exactButton && !exactButton.disabled) {
-                            exactButton.click();
-                            return true;
-                        }
-                        
-                        // Fallback to other common patterns
-                        const patterns = [
-                            '.btn-bng-white',
-                            'button[style*="height:50px"]',
-                            'button.btn.btn-lg.w-100',
-                            'button.font-weight-bold'
-                        ];
-                        
-                        for (const pattern of patterns) {
-                            const btn = document.querySelector(pattern);
-                            if (btn && !btn.disabled && 
-                                btn.textContent.includes('Add To Cart') || 
-                                btn.textContent.includes('Sepete Ekle')) {
-                                btn.click();
-                                return true;
-                            }
-                        }
-                        return false;
+            # Direct button click attempt with minimal retries
+            try:
+                clicked = target_page.evaluate("""
+                () => {
+                    const btn = document.querySelector('button.btn.btn-bng-white.btn-lg.font-weight-bold.w-100');
+                    if (btn && !btn.disabled) {
+                        btn.click();
+                        return true;
                     }
-                    """)
-                    if clicked:
-                        time.sleep(0.2)
-                        webbrowser.open("https://www.bynogame.com/en/cart")
-                        return True, "Please check your cart in the browser"
-                except:
-                    pass
-                
-                # Fallback to Playwright selectors
-                selectors = [
-                    "button.btn-bng-white",
-                    "button.btn.btn-lg.w-100",
-                    'button:has-text("Add To Cart")',
-                    'button:has-text("Sepete Ekle")',
-                    'button[style*="height:50px"]'
-                ]
-                
-                for selector in selectors:
-                    try:
-                        button = target_page.wait_for_selector(selector, timeout=300, state='visible')
-                        if button and button.is_enabled():
-                            button.click(timeout=1000)
-                            time.sleep(0.2)  # Minimal wait
-                            webbrowser.open("https://www.bynogame.com/en/cart")
-                            return True, "Please check your cart in the browser"
-                    except:
-                        continue
-                
-                time.sleep(poll_interval)
+                    return false;
+                }
+                """)
+                if clicked:
+                    webbrowser.open("https://www.bynogame.com/en/cart")
+                    return True, "Please check your cart in the browser"
+            except:
+                pass
             
-            return False, "Timeout: Could not find or click add to cart button within 10 seconds"
+            # Single fallback attempt with exact selector
+            try:
+                button = target_page.wait_for_selector(
+                    "button.btn.btn-bng-white.btn-lg.font-weight-bold.w-100",
+                    timeout=2000,
+                    state='visible'
+                )
+                if button and button.is_enabled():
+                    button.click(timeout=1000)
+                    webbrowser.open("https://www.bynogame.com/en/cart")
+                    return True, "Please check your cart in the browser"
+            except:
+                return False, "Could not find or click add to cart button"
             
         except Exception as e:
             print(f"Error: {str(e)}")
@@ -152,12 +94,4 @@ def snipe_skin(url, listing_no):
 
 def setup_browser():
     """Ensure browser is properly configured"""
-    # Install browser if needed
-    os.system("playwright install chromium")
-    
-    # Make sure Arc is installed
-    if not os.path.exists("/Applications/Arc.app"):
-        messagebox.showerror("Error", "Arc browser not found. Please install Arc browser.")
-        return False
-    
-    return True
+    return os.path.exists("/Applications/Arc.app")
