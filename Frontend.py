@@ -80,24 +80,30 @@ class SkinTrackerGUI:
         
         # Create main notebook for tabs
         self.notebook = ttk.Notebook(root)
-        self.notebook.pack(expand=True, fill='both', padx=10, pady=5)
         
         # Create tabs
         self.tracking_tab = ttk.Frame(self.notebook, style='Card.TFrame')
+        self.high_discount_tab = ttk.Frame(self.notebook, style='Card.TFrame')  # New tab for high discount
         self.tracked_skins_tab = ttk.Frame(self.notebook, style='Card.TFrame')
         self.saved_skins_tab = ttk.Frame(self.notebook, style='Card.TFrame')
         
         self.notebook.add(self.tracking_tab, text="Live Tracking")
+        self.notebook.add(self.high_discount_tab, text="High Discount")
         self.notebook.add(self.tracked_skins_tab, text="Tracking Skins")
         self.notebook.add(self.saved_skins_tab, text="Saved Skins")
+        self.notebook.pack(expand=True, fill='both', padx=10, pady=5)
         
         # Initialize tracking state
         self.is_tracking = False
-        self.tracking_thread = None
+        # New high discount tracking state
+        self.is_high_discount_tracking = False
+        self.high_discount_thread = None
+        
         self.update_queue = queue.Queue()
         
         # Setup tabs
         self.setup_tracking_tab()
+        self.setup_high_discount_tab()  # Setup the new tab
         self.setup_tracked_skins_tab()
         self.setup_saved_skins_tab()
         
@@ -207,6 +213,32 @@ class SkinTrackerGUI:
             insertbackground=self.colors['fg']  # Cursor color
         )
         self.output_text.pack(fill='both', expand=True, padx=5, pady=5)
+
+    def setup_high_discount_tab(self):
+        # Control frame with input and button
+        control_frame = ttk.Frame(self.high_discount_tab, style='Card.TFrame')
+        control_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Label(control_frame, text="Minimum Discount (%)", style='Modern.TLabel').pack(side='left', padx=5)
+        self.high_discount_entry = ttk.Entry(control_frame, font=('Segoe UI', 11), width=5)
+        self.high_discount_entry.pack(side='left', padx=5)
+        self.high_discount_entry.insert(0, "50")  # default value
+        
+        self.high_discount_button = ModernButton(control_frame, text="Start High Discount Tracking",
+                                                 command=self.toggle_high_discount_tracking,
+                                                 style='Modern.TButton')
+        self.high_discount_button.pack(side='left', padx=5)
+        
+        # ScrolledText widget to display high discount skins
+        self.high_discount_output = scrolledtext.ScrolledText(
+            self.high_discount_tab,
+            height=20,
+            font=('Segoe UI', 11),
+            background=self.colors['bg'],
+            foreground=self.colors['fg'],
+            insertbackground=self.colors['fg']
+        )
+        self.high_discount_output.pack(fill='both', expand=True, padx=5, pady=5)
 
     def setup_tracked_skins_tab(self):
         # Control buttons
@@ -478,10 +510,29 @@ class SkinTrackerGUI:
             self.status_label.configure(foreground=self.colors['status_inactive'])
             self.status_text.configure(text="Tracking Inactive")
 
+    def toggle_high_discount_tracking(self):
+        if not self.is_high_discount_tracking:
+            try:
+                threshold = float(self.high_discount_entry.get().strip())
+            except ValueError:
+                messagebox.showerror("Error", "Enter a valid discount percentage")
+                return
+            self.high_discount_threshold = threshold
+            self.is_high_discount_tracking = True
+            self.high_discount_button.configure(text="Stop High Discount Tracking")
+            self.high_discount_thread = threading.Thread(target=self.track_high_discount, daemon=True)
+            self.high_discount_thread.start()
+        else:
+            self.is_high_discount_tracking = False
+            self.high_discount_button.configure(text="Start High Discount Tracking")
+
     def track_skins(self):
         while self.is_tracking:
             try:
                 skins = fetch_skins()
+                # Clear previous skins from the output area in the UI thread
+                self.root.after(0, lambda: self.output_text.delete('1.0', tk.END))
+                
                 track_specific = (self.track_mode.get() == "specific")
                 
                 # Clear current skin data at the start of each fetch
@@ -547,10 +598,56 @@ class SkinTrackerGUI:
                         print(f"Error processing skin: {e}")
                         continue
                 
-                time.sleep(5) # refresh rate
+                time.sleep(5)  # refresh rate
                 
             except Exception as e:
                 print(f"Error fetching skins: {e}")
+                time.sleep(5)
+
+    def track_high_discount(self):
+        while self.is_high_discount_tracking:
+            try:
+                skins = fetch_skins()
+                # Clear output for high discount tab in the UI thread
+                self.root.after(0, lambda: self.high_discount_output.delete('1.0', tk.END))
+                for skin in skins:
+                    try:
+                        discount = float(skin.get("discountRate", 0))
+                        if discount < self.high_discount_threshold:
+                            continue
+                        listing_no = skin.get("listingNo")
+                        skin_name = skin.get("name", "Unknown Skin")
+                        float_value = skin.get('info', {}).get('float', "N/A")
+                        price = skin.get("price", 0)
+                        steam_price = skin.get("listingPriceUsd", "N/A")
+                        slug = skin.get("slug", "N/A")
+                        buy_link = f"https://www.bynogame.com/en/games/cs2-skin/{slug}?id={listing_no}"
+                        timestamp = datetime.now().strftime('%H:%M:%S')
+                        
+                        # Save skin data so quick save can work
+                        self.current_skin_data[listing_no] = {
+                            "name": skin_name,
+                            "float": float_value,
+                            "price": price,
+                            "steam_price": steam_price,
+                            "discount": discount,
+                            "link": buy_link
+                        }
+                        
+                        message_parts = {
+                            "header": f"\n{timestamp} - High Discount Skin\n",
+                            "details": f"{skin_name}\nFloat: {float_value}\nPrice: {price:.2f}TL\nSteam Price: {steam_price}$\nDiscount: {discount}%\nID: {listing_no}\nLink: ",
+                            "link": ("Click Here", buy_link),
+                            "save_button": ("Quick Save", listing_no)
+                        }
+                        self.update_queue.put(("high_discount", message_parts))
+                        
+                    except Exception as e:
+                        print(f"Error processing high discount skin: {e}")
+                        continue
+                time.sleep(5)
+            except Exception as e:
+                print(f"Error fetching high discount skins: {e}")
                 time.sleep(5)
 
     def process_queue(self):
@@ -559,17 +656,13 @@ class SkinTrackerGUI:
                 message_type, content = self.update_queue.get_nowait()
                 
                 if message_type == "message":
-                    # Add header and details
+                    # Normal tracking output (existing code)
                     self.output_text.insert(tk.END, content["header"])
                     self.output_text.insert(tk.END, content["details"])
-                    
-                    # Add clickable link
                     link_text, url = content["link"]
                     link_start = self.output_text.index("end-1c")
                     self.output_text.insert(tk.END, link_text, "hyperlink")
                     link_end = self.output_text.index("end-1c")
-                    
-                    # Create link tag
                     tag_name = f"link_{link_start}"
                     self.output_text.tag_add(tag_name, link_start, link_end)
                     self.output_text.tag_configure(tag_name,
@@ -577,17 +670,11 @@ class SkinTrackerGUI:
                                                 underline=1)
                     self.output_text.tag_bind(tag_name, "<Button-1>",
                                            lambda e, url=url: webbrowser.open(url))
-                    
-                    # Add separators and buttons
                     self.output_text.insert(tk.END, " | ")
-                    
-                    # Add quick save button
                     save_text, listing_no = content["save_button"]
                     save_start = self.output_text.index("end-1c")
                     self.output_text.insert(tk.END, save_text, "save_button")
                     save_end = self.output_text.index("end-1c")
-                    
-                    # Create save button tag
                     save_tag = f"save_{save_start}"
                     self.output_text.tag_add(save_tag, save_start, save_end)
                     self.output_text.tag_configure(save_tag,
@@ -595,34 +682,73 @@ class SkinTrackerGUI:
                                                 underline=1)
                     self.output_text.tag_bind(save_tag, "<Button-1>",
                                            lambda e, id=listing_no: self.quick_save_skin(id))
-                    
-                    # Add snipe button
                     self.output_text.insert(tk.END, " | ")
                     snipe_start = self.output_text.index("end-1c")
                     self.output_text.insert(tk.END, "Snipe!", "snipe_button")
                     snipe_end = self.output_text.index("end-1c")
-                    
-                    # Create snipe button tag
                     snipe_tag = f"snipe_{snipe_start}"
                     self.output_text.tag_add(snipe_tag, snipe_start, snipe_end)
                     self.output_text.tag_configure(snipe_tag,
-                                                foreground='#ff4444',  # Red color for urgency
+                                                foreground='#ff4444',
                                                 underline=1)
                     self.output_text.tag_bind(snipe_tag, "<Button-1>",
                                            lambda e, id=listing_no: self.snipe_skin(id))
-                    
-                    # Add hover effects for all buttons
+                    # Hover effects for buttons
                     for tag in [save_tag, snipe_tag]:
                         self.output_text.tag_bind(tag, "<Enter>",
                                                lambda e: self.output_text.configure(cursor="hand2"))
                         self.output_text.tag_bind(tag, "<Leave>",
                                                lambda e: self.output_text.configure(cursor=""))
-                    
-                    # Add newline after buttons
                     self.output_text.insert(tk.END, "\n")
-                    
-                self.output_text.see(tk.END)
+                    self.output_text.see(tk.END)
                 
+                elif message_type == "high_discount":
+                    widget = self.high_discount_output
+                    widget.insert(tk.END, content["header"])
+                    widget.insert(tk.END, content["details"])
+                    link_text, url = content["link"]
+                    link_start = widget.index("end-1c")
+                    widget.insert(tk.END, link_text, "hyperlink")
+                    link_end = widget.index("end-1c")
+                    tag_name = f"hd_link_{link_start}"
+                    widget.tag_add(tag_name, link_start, link_end)
+                    widget.tag_configure(tag_name,
+                                         foreground=self.colors['highlight'],
+                                         underline=1)
+                    widget.tag_bind(tag_name, "<Button-1>",
+                                    lambda e, url=url: webbrowser.open(url))
+                    widget.insert(tk.END, " | ")
+                    save_text, listing_no = content["save_button"]
+                    save_start = widget.index("end-1c")
+                    widget.insert(tk.END, save_text, "save_button")
+                    save_end = widget.index("end-1c")
+                    save_tag = f"hd_save_{save_start}"
+                    widget.tag_add(save_tag, save_start, save_end)
+                    widget.tag_configure(save_tag,
+                                         foreground=self.colors['accent'],
+                                         underline=1)
+                    widget.tag_bind(save_tag, "<Button-1>",
+                                    lambda e, id=listing_no: self.quick_save_skin(id))
+                    widget.insert(tk.END, " | ")
+                    snipe_start = widget.index("end-1c")
+                    widget.insert(tk.END, "Snipe!", "snipe_button")
+                    snipe_end = widget.index("end-1c")
+                    snipe_tag = f"hd_snipe_{snipe_start}"
+                    widget.tag_add(snipe_tag, snipe_start, snipe_end)
+                    widget.tag_configure(snipe_tag,
+                                         foreground='#ff4444',
+                                         underline=1)
+                    widget.tag_bind(snipe_tag, "<Button-1>",
+                                    lambda e, id=listing_no: self.snipe_skin(id))
+                    # Hover effects for high discount buttons
+                    for tag in [save_tag, snipe_tag]:
+                        widget.tag_bind(tag, "<Enter>",
+                                        lambda e: widget.configure(cursor="hand2"))
+                        widget.tag_bind(tag, "<Leave>",
+                                        lambda e: widget.configure(cursor=""))
+                    widget.insert(tk.END, "\n")
+                    widget.see(tk.END)
+                    
         except queue.Empty:
             pass
         finally:
@@ -685,7 +811,7 @@ class SkinTrackerGUI:
                 product_response = session.get(
                     product_url,
                     timeout=(5, 15),
-                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
                 )
                 product_response.raise_for_status()
                 print("Product page loaded successfully")
@@ -781,19 +907,19 @@ class SkinTrackerGUI:
             r'<meta[^>]*?name=[\'"](?:csrf-token|_token)[\'"][^>]*?content=["\']([^"\']+)["\']', 
             html_content, re.I
         )
-        if regex:
+        if (regex):
             print(f"Token from regex meta: {regex.group(1)}")
             return regex.group(1)
         regex = re.search(
             r'<input[^>]*?name=["\'](?:csrf|_token)["\'][^>]*?value=["\']([^"\']+)["\']', 
             html_content, re.I
         )
-        if regex:
+        if (regex):
             print(f"Token from regex input: {regex.group(1)}")
             return regex.group(1)
         # Method 4: Try to find token in JavaScript variables
         regex = re.search(r'(?:csrf_token|_token)[\'"]\s*:\s*[\'"]([^"\']+)[\'"]', html_content)
-        if regex:
+        if (regex):
             print(f"Token from JS variable: {regex.group(1)}")
             return regex.group(1)
         return None
