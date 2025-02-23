@@ -10,6 +10,7 @@ from Backend import fetch_skins, tracked_skins, saved_skins, save_tracked_skins,
 import requests
 import re
 from urllib.parse import unquote
+from playwright_sniper import snipe_skin as playwright_snipe
 
 class ModernButton(ttk.Button):
     def __init__(self, master=None, **kwargs):
@@ -788,101 +789,19 @@ class SkinTrackerGUI:
             skin_data = self.current_skin_data[listing_no]
             try:
                 product_url = skin_data.get("buylink", skin_data["link"])
-                session = requests.Session()
-                session.timeout = (5, 15)
-                from requests.adapters import HTTPAdapter
-                from urllib3.util.retry import Retry
-                retry_strategy = Retry(
-                    total=3,
-                    backoff_factor=0.5,
-                    status_forcelist=[500, 502, 503, 504, 429]
-                )
-                adapter = HTTPAdapter(max_retries=retry_strategy)
-                session.mount("https://", adapter)
-                print("Fetching main page...")
-                main_response = session.get(
-                    "https://www.bynogame.com/en",
-                    timeout=(5, 15),
-                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-                )
-                main_response.raise_for_status()
-                print("Main page loaded successfully")
-                print(f"Fetching product page: {product_url}")
-                product_response = session.get(
-                    product_url,
-                    timeout=(5, 15),
-                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-                )
-                product_response.raise_for_status()
-                print("Product page loaded successfully")
-                html_content = product_response.text
                 
-                # Extract CSRF token using the helper method
-                csrf_token = self._extract_csrf_token(html_content, session)
-                if not csrf_token:
-                    messagebox.showerror("Error", "Could not get authentication token. Please try again.")
-                    return
-                    
-                cart_endpoints = [
-                    "https://www.bynogame.com/en/add-cart",
-                    f"https://www.bynogame.com/en/cart/add/{listing_no}",
-                    "https://www.bynogame.com/en/api/cart/add"
-                ]
-                cart_data = {
-                    "listingNo": str(listing_no),
-                    "quantity": "1",
-                    "productType": "cs2-skin",
-                    "_token": csrf_token,
-                    "csrf_token": csrf_token
-                }
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'application/json, text/javascript, */*; q=0.01',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'X-CSRF-TOKEN': csrf_token,
-                    'Origin': 'https://www.bynogame.com',
-                    'Referer': product_url
-                }
-                cookie_string = '; '.join([f"{cookie.name}={cookie.value}" for cookie in session.cookies])
-                headers['Cookie'] = cookie_string
-                
-                success = False
-                for cart_url in cart_endpoints:
-                    try:
-                        print(f"\nTrying cart endpoint: {cart_url}")
-                        response = session.post(
-                            cart_url,
-                            data=cart_data,
-                            headers=headers,
-                            timeout=(5, 15)
-                        )
-                        print(f"Response Status: {response.status_code}")
-                        if response.status_code in [200, 201, 302]:
-                            success = True
-                            break
-                    except requests.exceptions.RequestException as e:
-                        print(f"Failed with endpoint {cart_url}: {str(e)}")
-                        continue
+                # Use Playwright to handle the purchase
+                success, message = playwright_snipe(product_url, listing_no)
                 
                 if success:
-                    webbrowser.open("https://www.bynogame.com/en/cart")
-                    messagebox.showinfo("Success", f"Added {skin_data['name']} to cart!\nCheckout page opened in browser.")
+                    messagebox.showinfo("Success", f"Added {skin_data['name']} to cart!\nPlease check your cart.")
                 else:
-                    error_msg = "Failed to add item to cart with all endpoints"
-                    if 'response' in locals() and response.text:
-                        try:
-                            error_data = response.json()
-                            error_msg = error_data.get('message', error_msg)
-                        except:
-                            error_msg = f"{error_msg}\nLast response: {response.text[:100]}..."
-                    messagebox.showerror("Error", error_msg)
-                
+                    messagebox.showerror("Error", f"Failed to add item: {message}")
+                    
             except Exception as e:
-                messagebox.showerror("Error", f"Unexpected error while sniping skin: {str(e)}")
                 print(f"Full error: {str(e)}")
-    
+                messagebox.showerror("Error", f"Unexpected error while sniping skin: {str(e)}")
+
     def _extract_csrf_token(self, html_content, session):
         """Helper method to extract CSRF token from HTML or session cookies"""
         # Method 1: Check the session cookie
