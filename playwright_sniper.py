@@ -30,27 +30,22 @@ def start_arc_browser():
 
 def snipe_skin(url, listing_no):
     """Use Playwright to add skin to cart"""
-    # Open product page in default browser first
     webbrowser.open(url)
-    time.sleep(3)  # Increased wait time
     
     with sync_playwright() as p:
         browser = None
         try:
-            # Try to connect to existing session
             try:
                 browser = p.chromium.connect_over_cdp("http://localhost:9222")
             except:
                 start_arc_browser()
-                time.sleep(2)
+                time.sleep(1)
                 browser = p.chromium.connect_over_cdp("http://localhost:9222")
             
-            # Get all pages
             context = browser.contexts[0]
-            pages = context.pages
             
-            # Wait for a page that matches our URL
-            max_retries = 10
+            # Quick page finding
+            max_retries = 5
             target_page = None
             
             for _ in range(max_retries):
@@ -60,65 +55,93 @@ def snipe_skin(url, listing_no):
                         break
                 if target_page:
                     break
-                time.sleep(0.5)
+                time.sleep(0.2)
             
             if not target_page:
                 return False, "Could not find product page"
-                
-            print(f"Found page: {target_page.url}")
             
-            # Wait for the page to be fully loaded
-            target_page.wait_for_load_state('networkidle')
+            # Set wider viewport for better visibility of right-side content
+            target_page.set_viewport_size({"width": 1200, "height": 1080})
+            target_page.evaluate("""
+                () => {
+                    // Scroll to show right side of page content
+                    const pageWidth = document.documentElement.scrollWidth;
+                    window.scrollTo(Math.max(0, pageWidth - 1200), 0);
+                    // Position window on right side of screen
+                    const screenWidth = window.screen.availWidth;
+                    window.moveTo(screenWidth - 1200, 0);
+                    window.resizeTo(1200, window.outerHeight);
+                }
+            """)
+            target_page.bring_to_front()
             
-            # Try multiple button finding strategies
-            button_found = False
+            # Rapid polling for button with timeout
+            start_time = time.time()
+            timeout = 10  # 10 seconds total timeout
+            poll_interval = 0.3  # Check every 0.3 seconds
             
-            # Strategy 1: Direct text match
-            try:
-                button = target_page.get_by_text("Sepete Ekle", exact=True)
-                if button.is_visible():
-                    button.click()
-                    button_found = True
-                    print("Clicked button using text match")
-            except:
-                pass
-                
-            # Strategy 2: Role and text content
-            if not button_found:
+            while time.time() - start_time < timeout:
+                # Try direct JavaScript click first (fastest method)
                 try:
-                    button = target_page.get_by_role("button", name="Sepete Ekle")
-                    if button.is_visible():
-                        button.click()
-                        button_found = True
-                        print("Clicked button using role")
-                except:
-                    pass
-            
-            # Strategy 3: JavaScript click
-            if not button_found:
-                try:
-                    target_page.evaluate("""
+                    clicked = target_page.evaluate("""
                     () => {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        const cartButton = buttons.find(btn => 
-                            btn.textContent.includes('Sepete') || 
-                            btn.textContent.includes('Cart')
-                        );
-                        if (cartButton) cartButton.click();
+                        // Try exact button match first
+                        const exactButton = document.querySelector('button.btn.btn-bng-white.btn-lg.font-weight-bold.w-100');
+                        if (exactButton && !exactButton.disabled) {
+                            exactButton.click();
+                            return true;
+                        }
+                        
+                        // Fallback to other common patterns
+                        const patterns = [
+                            '.btn-bng-white',
+                            'button[style*="height:50px"]',
+                            'button.btn.btn-lg.w-100',
+                            'button.font-weight-bold'
+                        ];
+                        
+                        for (const pattern of patterns) {
+                            const btn = document.querySelector(pattern);
+                            if (btn && !btn.disabled && 
+                                btn.textContent.includes('Add To Cart') || 
+                                btn.textContent.includes('Sepete Ekle')) {
+                                btn.click();
+                                return true;
+                            }
+                        }
+                        return false;
                     }
                     """)
-                    button_found = True
-                    print("Clicked button using JavaScript")
+                    if clicked:
+                        time.sleep(0.2)
+                        webbrowser.open("https://www.bynogame.com/en/cart")
+                        return True, "Please check your cart in the browser"
                 except:
                     pass
+                
+                # Fallback to Playwright selectors
+                selectors = [
+                    "button.btn-bng-white",
+                    "button.btn.btn-lg.w-100",
+                    'button:has-text("Add To Cart")',
+                    'button:has-text("Sepete Ekle")',
+                    'button[style*="height:50px"]'
+                ]
+                
+                for selector in selectors:
+                    try:
+                        button = target_page.wait_for_selector(selector, timeout=300, state='visible')
+                        if button and button.is_enabled():
+                            button.click(timeout=1000)
+                            time.sleep(0.2)  # Minimal wait
+                            webbrowser.open("https://www.bynogame.com/en/cart")
+                            return True, "Please check your cart in the browser"
+                    except:
+                        continue
+                
+                time.sleep(poll_interval)
             
-            if not button_found:
-                return False, "Could not find or click add to cart button"
-            
-            # Wait for potential cart update
-            time.sleep(2)
-            webbrowser.open("https://www.bynogame.com/en/cart")
-            return True, "Please check your cart in the browser"
+            return False, "Timeout: Could not find or click add to cart button within 10 seconds"
             
         except Exception as e:
             print(f"Error: {str(e)}")
