@@ -1,0 +1,14 @@
+{
+    "AWP | Hyper Beast (Factory New)": {
+        "type": "price",
+        "threshold": 1000.0
+    },
+    "AWP | Hyper Beast (Minimal Wear)": {
+        "type": "price",
+        "threshold": 1000.0
+    },
+    "AWP | Hyper Beast (Field-Tested)": {
+        "type": "price",
+        "threshold": 1000.0
+    }
+}
