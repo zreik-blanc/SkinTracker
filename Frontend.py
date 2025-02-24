@@ -254,6 +254,9 @@ class SkinTrackerGUI:
         ModernButton(button_frame, text="Auto Buy",
                      command=self.autobuy_tracked_skin,
                      style='Modern.TButton').pack(side='left', padx=5)
+        ModernButton(button_frame, text="Remove Auto Buy",
+                     command=self.remove_autobuy_tracked_skin,
+                     style='Modern.TButton').pack(side='left', padx=5)
         
         # Tracked skins list with modern styling
         self.tracked_listbox = ModernListbox(self.tracked_skins_tab, height=15)
@@ -340,6 +343,8 @@ class SkinTrackerGUI:
             threshold = info["threshold"]
             track_type = info["type"]
             display = f"{skin} ({track_type.capitalize()}: {threshold}{'%' if track_type == 'discount' else 'TL'})"
+            if info.get("AutoBuy", 0) == 1:
+                display += " [Auto Buy Enabled]"
             self.tracked_listbox.insert(tk.END, display)
 
     def update_saved_skins_list(self):
@@ -495,6 +500,23 @@ class SkinTrackerGUI:
                 messagebox.showerror("Error", "Selected skin not found.")
         else:
             messagebox.showwarning("Warning", "Please select a skin to enable Auto Buy.")
+
+    def remove_autobuy_tracked_skin(self):
+        selection = self.tracked_listbox.curselection()
+        if selection:
+            skin_name = list(self.tracked_skins.keys())[selection[0]]
+            if skin_name in self.tracked_skins:
+                self.tracked_skins[skin_name]["AutoBuy"] = 0
+                try:
+                    self.save_tracked_skins()
+                    self.update_tracked_skins_list()
+                    messagebox.showinfo("Success", f"Auto Buy disabled for {skin_name}!")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to update skin: {str(e)}")
+            else:
+                messagebox.showerror("Error", "Selected skin not found.")
+        else:
+            messagebox.showwarning("Warning", "Please select a skin to disable Auto Buy.")
 
     def remove_saved_skin(self):
         selection = self.saved_listbox.curselection()

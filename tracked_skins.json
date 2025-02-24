@@ -12,26 +12,16 @@
     "AWP | Hyper Beast (Field-Tested)": {
         "type": "price",
         "threshold": 1000.0,
-        "AutoBuy": 1
+        "AutoBuy": 0
     },
     "MAC-10 | Sakkaku (Field-Tested)": {
         "type": "price",
         "threshold": 30.0,
         "AutoBuy": 1
     },
-    "M4A1-S | Emphorosaur-S (Minimal Wear)": {
-        "type": "discount",
-        "threshold": 10.0,
-        "AutoBuy": 1
-    },
-    "M4A1-S | Night Terror (Minimal Wear)": {
+    "MP9 | Food Chain (Field-Tested)": {
         "type": "price",
-        "threshold": 40.0,
-        "AutoBuy": 1
-    },
-    "M4A1-S | Player Two (Field-Tested)": {
-        "type": "price",
-        "threshold": 850.0,
+        "threshold": 100.0,
         "AutoBuy": 1
     }
 }

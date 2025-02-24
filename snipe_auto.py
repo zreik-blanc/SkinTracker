@@ -9,6 +9,9 @@ import urllib.request
 # Importing helper functions from playwright_sniper.py
 from playwright_sniper import start_arc_browser, wait_for_debug_endpoint
 
+# Configurable target option for purchasing. Change this value to target a different option. This name must be in the cart page.
+TARGET_OPTION = "Shroud"
+
 
 def snipe_auto(url, listing_no):
     """Opens the product page, adds item to cart, then in the cart page selects options and completes purchase."""
@@ -110,15 +113,26 @@ def snipe_auto(url, listing_no):
             except Exception as e:
                 return False, f"Could not click 'Seçiniz': {e}"
 
-            # Click the 'Shroud' option (a span with class 'font-weight-bold' and text 'Shroud')
-            try:
-                shroud = cart_page.wait_for_selector("span.font-weight-bold:has-text('Shroud')", timeout=5000)
-                shroud.click()
-                print("[DEBUG] 'Shroud' clicked.")
-            except Exception as e:
-                return False, f"Could not click 'Shroud': {e}"
+            # Click the target option element (a span with class 'font-weight-bold' and text equal to TARGET_OPTION)
+            max_attempts = 2
+            for attempt in range(max_attempts):
+                try:
+                    target_option = cart_page.wait_for_selector(f"span.font-weight-bold:has-text('{TARGET_OPTION}')", timeout=5000)
+                    target_option.click()
+                    print(f"[DEBUG] '{TARGET_OPTION}' clicked.")
+                    break
+                except Exception as e:
+                    if attempt < max_attempts - 1:
+                        try:
+                            seciniz = cart_page.wait_for_selector("div:has-text('Seçiniz')", timeout=5000)
+                            seciniz.click()
+                            print("[DEBUG] 'Seçiniz' re-clicked to refresh page.")
+                        except Exception as ex:
+                            print(f"[DEBUG] Re-clicking 'Seçiniz' failed: {ex}")
+                    else:
+                        return False, f"Could not click '{TARGET_OPTION}': {e}"
 
-            # Click the 'Alışverişi Tamamla' button
+            # Click the 'Checkout' button
             try:
                 tamamla = cart_page.wait_for_selector("button:has-text('Checkout')", timeout=5000)
                 tamamla.click()
