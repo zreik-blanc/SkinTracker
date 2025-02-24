@@ -182,6 +182,20 @@ class SkinTrackerGUI:
                                      style='Modern.TButton')
         self.start_button.pack(side='left', padx=5)
         
+        # --- New fetch limit combobox added here ---
+        lbl_limit = ttk.Label(left_frame, text="Fetch Limit:", style='Modern.TLabel')
+        lbl_limit.pack(side='left', padx=5)
+        self.fetch_limit_var = tk.StringVar(value="50")
+        limit_combo = ttk.Combobox(
+            left_frame,
+            textvariable=self.fetch_limit_var,
+            values=["50", "100", "250", "500", "1000"],
+            width=5,
+            state="readonly"
+        )
+        limit_combo.pack(side='left', padx=5)
+        # --- End new widget ---
+        
         # Right side status
         status_frame = ttk.Frame(control_frame, style='Card.TFrame')
         status_frame.pack(side='right', padx=10)
@@ -344,7 +358,11 @@ class SkinTrackerGUI:
             track_type = info["type"]
             display = f"{skin} ({track_type.capitalize()}: {threshold}{'%' if track_type == 'discount' else 'TL'})"
             if info.get("AutoBuy", 0) == 1:
-                display += " [Auto Buy Enabled]"
+                quantity = info.get("Quantity")
+                if quantity is not None:
+                    display += f" [Auto Buy Enabled, Remaining: {quantity}]"
+                else:
+                    display += " [Auto Buy Enabled]"
             self.tracked_listbox.insert(tk.END, display)
 
     def update_saved_skins_list(self):
@@ -484,16 +502,44 @@ class SkinTrackerGUI:
                     self.update_tracked_skins_list()
                     messagebox.showerror("Error", f"Failed to remove skin: {str(e)}")
 
+    def show_autobuy_quantity_dialog(self, skin_name):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Auto Buy Quantity")
+        dialog.geometry("300x120")
+        ttk.Label(dialog, text=f"Enter quantity to purchase for {skin_name}:").pack(pady=10)
+        quantity_entry = ttk.Entry(dialog, font=('Segoe UI', 11))
+        quantity_entry.pack(pady=5)
+        result = {"quantity": None}
+
+        def on_ok():
+            try:
+                q = int(quantity_entry.get())
+                result["quantity"] = q
+            except ValueError:
+                messagebox.showerror("Error", "Please enter a valid number.")
+                return
+            dialog.destroy()
+
+        ok_button = ttk.Button(dialog, text="OK", command=on_ok, style='Modern.TButton')
+        ok_button.pack(pady=10)
+        dialog.grab_set()
+        self.root.wait_window(dialog)
+        return result["quantity"]
+
     def autobuy_tracked_skin(self):
         selection = self.tracked_listbox.curselection()
         if selection:
             skin_name = list(self.tracked_skins.keys())[selection[0]]
             if skin_name in self.tracked_skins:
+                quantity = self.show_autobuy_quantity_dialog(skin_name)
+                if quantity is None:
+                    return
                 self.tracked_skins[skin_name]["AutoBuy"] = 1
+                self.tracked_skins[skin_name]["Quantity"] = quantity
                 try:
                     self.save_tracked_skins()
                     self.update_tracked_skins_list()
-                    messagebox.showinfo("Success", f"Auto Buy enabled for {skin_name}!")
+                    messagebox.showinfo("Success", f"Auto Buy enabled for {skin_name} (Quantity: {quantity})!")
                 except Exception as e:
                     messagebox.showerror("Error", f"Failed to update skin: {str(e)}")
             else:
@@ -572,7 +618,8 @@ class SkinTrackerGUI:
     def track_skins(self):
         while self.is_tracking:
             try:
-                skins = fetch_skins()
+                # Use the selected fetch limit from the combobox
+                skins = fetch_skins(limit=int(self.fetch_limit_var.get()))
                 # Clear previous skins from the output area in the UI thread
                 self.root.after(0, lambda: self.output_text.delete('1.0', tk.END))
                 
@@ -596,15 +643,17 @@ class SkinTrackerGUI:
                         slug = skin.get("slug", "N/A")
                         buy_link = f"https://www.bynogame.com/en/games/cs2-skin/{slug}?id={listing_no}"
                         
-                        if status == 2:  # Skip sold items
+                        if status == 2 or status == 3:  # Skip sold items
                             continue
                             
                         if self.track_mode.get() == "specific":
                             matched_tracker = None
+                            matched_key = None
                             for tracked_skin, track_info in self.tracked_skins.items():
                                 if tracked_skin.lower() in skin_name.lower():
                                     if (track_info["type"] == "discount" and discount >= track_info["threshold"]) or (track_info["type"] == "price" and price <= track_info["threshold"]):
                                         matched_tracker = track_info
+                                        matched_key = tracked_skin
                                         break
                             if matched_tracker is None:
                                 continue
@@ -615,8 +664,19 @@ class SkinTrackerGUI:
                         if self.track_mode.get() == "specific" and matched_tracker.get("AutoBuy", 0) == 1:
                             if listing_no not in self.auto_sniped_skins:
                                 self.auto_sniped_skins.add(listing_no)
-                                success, auto_msg = auto_snipe(buy_link, listing_no)
+                                current_quantity = matched_tracker.get("Quantity", 0)
+                                success, auto_msg = auto_snipe(buy_link, listing_no, current_quantity)
                                 print(f"[DEBUG] Auto sniping executed for {listing_no}: {auto_msg}")
+                                if success:
+                                    new_quantity = current_quantity - 1
+                                    if new_quantity <= 0:
+                                        del self.tracked_skins[matched_key]
+                                    else:
+                                        matched_tracker["Quantity"] = new_quantity
+                                    self.save_tracked_skins()
+                                    self.update_tracked_skins_list()
+                                    # Remove the listing from auto_sniped_skins so it can be retried if quantity remains
+                                    self.auto_sniped_skins.discard(listing_no)
                         
                         # Store the skin data
                         self.current_skin_data[listing_no] = {
@@ -651,7 +711,8 @@ class SkinTrackerGUI:
     def track_high_discount(self):
         while self.is_high_discount_tracking:
             try:
-                skins = fetch_skins()
+                # Use the selected fetch limit from the combobox
+                skins = fetch_skins(limit=int(self.fetch_limit_var.get()))
                 # Clear output for high discount tab in the UI thread
                 self.root.after(0, lambda: self.high_discount_output.delete('1.0', tk.END))
                 for skin in skins:

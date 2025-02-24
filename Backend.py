@@ -7,8 +7,8 @@ import json
 tracked_skins = {}  # Dictionary to store skin names and their thresholds
 saved_skins = []    # List for saved skin data
 
-def fetch_skins():
-    url = "https://listing.bynogame.net/api/listings/cs2?page=0&limit=50"
+def fetch_skins(limit=50):
+    url = f"https://listing.bynogame.net/api/listings/cs2?page=0&limit={limit}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json',

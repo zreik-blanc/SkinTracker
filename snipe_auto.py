@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 from playwright.sync_api import sync_playwright
 import time
-import subprocess
-import os
 import webbrowser
-import urllib.request
 
 # Importing helper functions from playwright_sniper.py
 from playwright_sniper import start_arc_browser, wait_for_debug_endpoint
@@ -13,8 +10,9 @@ from playwright_sniper import start_arc_browser, wait_for_debug_endpoint
 TARGET_OPTION = "Shroud"
 
 
-def snipe_auto(url, listing_no):
-    """Opens the product page, adds item to cart, then in the cart page selects options and completes purchase."""
+def snipe_auto(url, listing_no, quantity=None):
+    """Opens the product page, adds item to cart, then in the cart page selects options and completes purchase.
+    If quantity is provided, it subtracts 1 from it on a successful purchase and returns the updated quantity in the message."""
     # Open product page in default browser (for user feedback)
     webbrowser.open(url)
 
@@ -140,6 +138,9 @@ def snipe_auto(url, listing_no):
             except Exception as e:
                 return False, f"Could not click 'Checkout': {e}"
 
+            if quantity is not None:
+                new_quantity = quantity - 1
+                return True, f"Purchase complete. Remaining quantity: {new_quantity}"
             return True, "Purchase complete."
         except Exception as e:
             print("Error:", e)
@@ -152,9 +153,10 @@ def snipe_auto(url, listing_no):
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 3:
-        print("Usage: snipe_auto.py <URL> <listing_no>")
+        print("Usage: snipe_auto.py <URL> <listing_no> [quantity]")
         sys.exit(1)
     url = sys.argv[1]
     listing_no = sys.argv[2]
-    result, msg = snipe_auto(url, listing_no)
+    quantity = int(sys.argv[3]) if len(sys.argv) > 3 else None
+    result, msg = snipe_auto(url, listing_no, quantity)
     print(msg) 

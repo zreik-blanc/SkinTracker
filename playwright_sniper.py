@@ -2,8 +2,6 @@ from playwright.sync_api import sync_playwright
 import time
 import subprocess
 import os
-import json
-from tkinter import messagebox
 import webbrowser
 import urllib.request, urllib.error
 
