@@ -9,6 +9,7 @@ from datetime import datetime
 from Backend import fetch_skins, tracked_skins, saved_skins, save_tracked_skins, save_saved_skins
 import requests
 from playwright_sniper import snipe_skin as playwright_snipe
+from snipe_auto import snipe_auto as auto_snipe
 
 class ModernButton(ttk.Button):
     def __init__(self, master=None, **kwargs):
@@ -250,6 +251,9 @@ class SkinTrackerGUI:
         ModernButton(button_frame, text="Remove Selected",
                   command=self.remove_tracked_skin,
                   style='Modern.TButton').pack(side='left', padx=5)
+        ModernButton(button_frame, text="Auto Buy",
+                     command=self.autobuy_tracked_skin,
+                     style='Modern.TButton').pack(side='left', padx=5)
         
         # Tracked skins list with modern styling
         self.tracked_listbox = ModernListbox(self.tracked_skins_tab, height=15)
@@ -440,7 +444,8 @@ class SkinTrackerGUI:
                     full_name = f"{weapon} | {skin} {condition}"
                     skin_data = {
                         "type": track_type.get(),
-                        "threshold": threshold
+                        "threshold": threshold,
+                        "AutoBuy": 0
                     }
                     self.tracked_skins[full_name] = skin_data
                 
@@ -473,6 +478,23 @@ class SkinTrackerGUI:
                     self.tracked_skins[skin_name] = old_data
                     self.update_tracked_skins_list()
                     messagebox.showerror("Error", f"Failed to remove skin: {str(e)}")
+
+    def autobuy_tracked_skin(self):
+        selection = self.tracked_listbox.curselection()
+        if selection:
+            skin_name = list(self.tracked_skins.keys())[selection[0]]
+            if skin_name in self.tracked_skins:
+                self.tracked_skins[skin_name]["AutoBuy"] = 1
+                try:
+                    self.save_tracked_skins()
+                    self.update_tracked_skins_list()
+                    messagebox.showinfo("Success", f"Auto Buy enabled for {skin_name}!")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to update skin: {str(e)}")
+            else:
+                messagebox.showerror("Error", "Selected skin not found.")
+        else:
+            messagebox.showwarning("Warning", "Please select a skin to enable Auto Buy.")
 
     def remove_saved_skin(self):
         selection = self.saved_listbox.curselection()
@@ -532,10 +554,10 @@ class SkinTrackerGUI:
                 # Clear previous skins from the output area in the UI thread
                 self.root.after(0, lambda: self.output_text.delete('1.0', tk.END))
                 
-                track_specific = (self.track_mode.get() == "specific")
-                
                 # Clear current skin data at the start of each fetch
                 self.current_skin_data = {}
+                if not hasattr(self, "auto_sniped_skins"):
+                    self.auto_sniped_skins = set()
                 
                 for skin in skins:
                     if not self.is_tracking:
@@ -555,23 +577,24 @@ class SkinTrackerGUI:
                         if status == 2:  # Skip sold items
                             continue
                             
-                        if track_specific:
-                            found_match = False
+                        if self.track_mode.get() == "specific":
+                            matched_tracker = None
                             for tracked_skin, track_info in self.tracked_skins.items():
                                 if tracked_skin.lower() in skin_name.lower():
-                                    track_type = track_info["type"]
-                                    threshold = track_info["threshold"]
-                                    
-                                    if track_type == "discount" and discount >= threshold:
-                                        found_match = True
+                                    if (track_info["type"] == "discount" and discount >= track_info["threshold"]) or (track_info["type"] == "price" and price <= track_info["threshold"]):
+                                        matched_tracker = track_info
                                         break
-                                    elif track_type == "price" and price <= threshold:
-                                        found_match = True
-                                        break
-                            if not found_match:
+                            if matched_tracker is None:
                                 continue
-                        elif discount <= 0:  # Skip non-discounted items in all-tracking mode
-                            continue
+                        else:
+                            if discount <= 0:
+                                continue
+                        
+                        if self.track_mode.get() == "specific" and matched_tracker.get("AutoBuy", 0) == 1:
+                            if listing_no not in self.auto_sniped_skins:
+                                self.auto_sniped_skins.add(listing_no)
+                                success, auto_msg = auto_snipe(buy_link, listing_no)
+                                print(f"[DEBUG] Auto sniping executed for {listing_no}: {auto_msg}")
                         
                         # Store the skin data
                         self.current_skin_data[listing_no] = {
@@ -585,7 +608,7 @@ class SkinTrackerGUI:
                         
                         # Create message with clickable link and quick save button
                         message_parts = {
-                            "header": f"\n{datetime.now().strftime('%H:%M:%S')} - {'Match Found' if track_specific else 'Discount'}\n",
+                            "header": f"\n{datetime.now().strftime('%H:%M:%S')} - {'Match Found' if self.track_mode.get() == 'specific' else 'Discount'}\n",
                             "details": f"{skin_name}\nFloat: {float_value}\nPrice: {price:.2f}TL\nSteam Price: {steam_price}$\nDiscount: {discount}%\nID: {listing_no}\nLink: ",
                             "link": ("Click Here", buy_link),
                             "save_button": ("Quick Save", listing_no)  # New save button
