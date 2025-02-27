@@ -61,7 +61,7 @@ A Python-based tool for monitoring and automatically purchasing CS2 skins from B
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/SkinTracker.git
+git clone https://github.com/zreik-blanc/SkinTracker.git
 cd SkinTracker
 ```
 
