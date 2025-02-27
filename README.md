@@ -17,29 +17,45 @@ A Python-based tool for monitoring and automatically purchasing CS2 skins from B
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+### Python and Browser Requirements
 - Python 3.7 or higher
 - One of the supported browsers:
-  - Arc Browser
-  - Google Chrome
-  - Microsoft Edge
+  - Arc Browser (Default location):
+    - Windows: `%LOCALAPPDATA%\Arc\`
+    - macOS: `/Applications/Arc.app/`
+  - Google Chrome:
+    - Windows: `%LOCALAPPDATA%\Google\Chrome\`
+    - macOS: `/Applications/Google Chrome.app/`
+    - Linux: `/usr/bin/google-chrome`
+  - Microsoft Edge:
+    - Windows: `%PROGRAMFILES(x86)%\Microsoft\Edge\`
+    - macOS: `/Applications/Microsoft Edge.app/`
+    - Linux: `/usr/bin/microsoft-edge`
 - Git (for cloning the repository)
-- System audio support (for notification sounds)
 
-### System-Specific Requirements
-
-#### Windows
-- No additional requirements
-
-#### macOS
-- No additional requirements
+### System Dependencies
 
 #### Linux
-- `aplay` or `paplay` for notification sounds:
+- **GUI Support**: Python's tkinter library
   ```bash
-  # For Ubuntu/Debian
+  # Ubuntu/Debian
+  sudo apt-get install python3-tk
+
+  # Fedora
+  sudo dnf install python3-tkinter
+  ```
+- **Sound Support**: `aplay` or `paplay` for notifications
+  ```bash
+  # Ubuntu/Debian
   sudo apt-get install alsa-utils pulseaudio-utils
   ```
+
+#### macOS
+- tkinter and sound support are pre-installed
+- If tkinter is missing: `brew install python-tk@3.9`
+
+#### Windows
+- All required system dependencies come with Python installation
 
 ## Installation
 
@@ -105,6 +121,14 @@ The GUI provides easy access to all features:
 - Manage tracked and saved skins
 - Set up auto-buy preferences
 
+#### Getting Started
+1. **Finding Skin Listings**:
+   - Go to https://www.bynogame.com/en/games/cs2/skin
+   - Find the skin you want to monitor
+   - The listing number is the last part of the URL:
+     - Example: In `https://www.bynogame.com/en/games/cs2/skin/123456`
+     - Listing number is `123456`
+
 #### Initial Setup
 1. Close all instances of your preferred browser (Arc/Chrome/Edge)
 2. Log into your ByNoGame account in your browser:
@@ -118,6 +142,8 @@ The GUI provides easy access to all features:
    python Frontend.py
    ```
 5. Click the "Config" button to set up your Steam username
+   - Default username is "zreik.blanc" if not configured
+   - The username is saved in `steam_username.txt`
 6. Enter your Steam username in the dialog that appears
 7. This username will be used for automatic checkout when sniping skins
 
@@ -126,6 +152,16 @@ The GUI provides easy access to all features:
 - The browser must be closed before starting SkinTracker
 - Your login session will persist even after closing the browser
 - If you get connection errors, try closing the browser and restarting the program
+
+#### Data Files
+The program creates several files to store data:
+- `tracked_skins.json`: List of skins currently being tracked
+- `saved_skins.json`: List of saved skins for later monitoring
+- `steam_username.txt`: Your configured Steam username
+- `sniper.log`: Detailed operation logs
+- `successful_snipes.log`: Record of successful purchases
+
+These files are created automatically and store your preferences and history.
 
 #### Main Features
 - **Track Skins**: Add skins to monitor by entering their URL or listing number
@@ -171,14 +207,17 @@ python monitor_and_snipe.py "https://www.bynogame.com/en/games/cs2/skin/123456" 
 1. For Arc Browser:
    - Make sure Arc is installed in the default location
    - Close any existing Arc instances before running the script
+   - Arc is the default and recommended browser
 
 2. For Chrome:
    - Ensure Google Chrome is installed
    - The script will automatically configure Chrome for automation
+   - Recommended alternative if Arc is not available
 
 3. For Edge:
    - Ensure Microsoft Edge is installed
    - The script will automatically configure Edge for automation
+   - Use if other browsers are not available
 
 ## Troubleshooting
 
@@ -188,16 +227,19 @@ python monitor_and_snipe.py "https://www.bynogame.com/en/games/cs2/skin/123456" 
    - Close all instances of the browser and try again
    - Use the `--random-port` option to avoid port conflicts
    - Try a different browser using the `--browser` option
+   - Check if browser is installed in the default location
 
 2. **Monitoring Errors**
    - Enable recovery mode with `--recovery` flag
    - Adjust check intervals using `--min-interval` and `--max-interval`
    - Check your internet connection
+   - Verify the listing number is correct
 
 3. **Purchase Failures**
    - Verify your Steam username is correct
    - Ensure you're logged into ByNoGame in your browser
    - Check if the item is still available
+   - Make sure you have sufficient funds in your account
 
 4. **Sound Notification Issues**
    - On Linux: Ensure `alsa-utils` or `pulseaudio-utils` is installed
