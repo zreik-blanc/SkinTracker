@@ -1,0 +1,4 @@
+playwright==1.41.0 # For browser automation
+requests==2.31.0 # For making HTTP requests
+playsound==1.3.0  # For notification sounds on different platforms
+ 
