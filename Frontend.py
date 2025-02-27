@@ -6,10 +6,10 @@ import queue
 import time
 import webbrowser
 from datetime import datetime
-from Backend import fetch_skins, tracked_skins, saved_skins, save_tracked_skins, save_saved_skins
-import requests
+from Backend import fetch_skins, tracked_skins, saved_skins
 from playwright_sniper import snipe_skin as playwright_snipe
 from snipe_auto import snipe_auto as auto_snipe
+import os
 
 class ModernButton(ttk.Button):
     def __init__(self, master=None, **kwargs):
@@ -50,11 +50,11 @@ class SkinTrackerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("CS2 Skin Tracker")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x700")
+        self.root.minsize(800, 600)
         
-        # Initialize data storage
-        self.tracked_skins = {}
-        self.saved_skins = []
+        # Load interface settings
+        self.load_window_settings()
         
         # Set theme colors
         self.colors = {
@@ -69,14 +69,42 @@ class SkinTrackerGUI:
             'status_inactive': '#f44336'# Red for inactive status
         }
         
+        # Initialize state variables
+        self.msg_queue = queue.Queue()
+        self.is_tracking = False
+        self.is_high_discount_tracking = False
+        self.tracked_skins = {}
+        self.saved_skins = []
+        self.current_skin_data = {}
+        self.auto_sniped_skins = set()  # Initialize as a set, not a list
+        
+        # Load Steam username for auto-buy
+        self.steam_username = "zreik.blanc"  # Default
+        self.load_steam_username()
+        
+        # Set up styles and tabs
+        self.setup_styles()
+        
+        # Initialize data storage
+        self.tracked_skins = {}
+        self.saved_skins = []
+        self.auto_sniped_skins = set()  # Initialize as a set, not a list
+        
+        # Bind window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
         # Configure root window
         self.root.configure(bg=self.colors['bg'])
         
-        # Dictionary to store current skin data
+        # Dictionary to store current skin data with timestamps
         self.current_skin_data = {}
+        self.max_cache_size = 1000  # Maximum number of skins to keep in memory
+        self.cache_cleanup_interval = 300  # Cleanup every 5 minutes
+        self.last_cleanup_time = time.time()
         
-        # Configure style
-        self.setup_styles()
+        self.knives_only = tk.BooleanVar(value=False)
+        self.knives_max_price_var = tk.StringVar(value="0")
+        self.knives_autosnipe = tk.BooleanVar(value=False)
         
         # Create main notebook for tabs
         self.notebook = ttk.Notebook(root)
@@ -194,6 +222,8 @@ class SkinTrackerGUI:
             state="readonly"
         )
         limit_combo.pack(side='left', padx=5)
+        self.knives_button = ModernButton(left_frame, text="Configs", command=self.open_knives_config_dialog, style='Modern.TButton')
+        self.knives_button.pack(side='left', padx=5)
         # --- End new widget ---
         
         # Right side status
@@ -208,15 +238,7 @@ class SkinTrackerGUI:
             style='Status.TLabel'
         )
         self.status_label.pack(side='left', padx=2)
-        
-        # Create status text
-        self.status_text = ttk.Label(
-            status_frame,
-            text="Tracking Inactive",
-            style='Modern.TLabel'
-        )
-        self.status_text.pack(side='left', padx=2)
-        
+
         # Output area with custom font and colors
         self.output_text = scrolledtext.ScrolledText(
             self.tracking_tab,
@@ -590,14 +612,12 @@ class SkinTrackerGUI:
             self.is_tracking = True
             self.start_button.configure(text="Stop Tracking")
             self.status_label.configure(foreground=self.colors['status_active'])
-            self.status_text.configure(text="Tracking Active")
             self.tracking_thread = threading.Thread(target=self.track_skins, daemon=True)
             self.tracking_thread.start()
         else:
             self.is_tracking = False
             self.start_button.configure(text="Start Tracking")
             self.status_label.configure(foreground=self.colors['status_inactive'])
-            self.status_text.configure(text="Tracking Inactive")
 
     def toggle_high_discount_tracking(self):
         if not self.is_high_discount_tracking:
@@ -615,6 +635,29 @@ class SkinTrackerGUI:
             self.is_high_discount_tracking = False
             self.high_discount_button.configure(text="Start High Discount Tracking")
 
+    def cleanup_skin_cache(self, force=False):
+        """Clean up old entries from the skin cache"""
+        current_time = time.time()
+        
+        # Only cleanup if forced or enough time has passed since last cleanup
+        if not force and (current_time - self.last_cleanup_time < self.cache_cleanup_interval):
+            return
+            
+        # If cache size exceeds limit, remove oldest entries
+        if len(self.current_skin_data) > self.max_cache_size:
+            # Sort entries by timestamp
+            sorted_entries = sorted(
+                self.current_skin_data.items(),
+                key=lambda x: x[1].get('timestamp', 0)
+            )
+            
+            # Remove oldest entries until we're under the limit
+            entries_to_remove = len(sorted_entries) - self.max_cache_size
+            for listing_no, _ in sorted_entries[:entries_to_remove]:
+                del self.current_skin_data[listing_no]
+        
+        self.last_cleanup_time = current_time
+
     def track_skins(self):
         while self.is_tracking:
             try:
@@ -623,10 +666,8 @@ class SkinTrackerGUI:
                 # Clear previous skins from the output area in the UI thread
                 self.root.after(0, lambda: self.output_text.delete('1.0', tk.END))
                 
-                # Clear current skin data at the start of each fetch
-                self.current_skin_data = {}
-                if not hasattr(self, "auto_sniped_skins"):
-                    self.auto_sniped_skins = set()
+                # Run cache cleanup
+                self.cleanup_skin_cache()
                 
                 for skin in skins:
                     if not self.is_tracking:
@@ -637,15 +678,45 @@ class SkinTrackerGUI:
                         listing_no = skin.get("listingNo")
                         skin_name = skin.get("name", "Unknown Skin")
                         float_value = skin.get('info', {}).get('float', "N/A")
-                        price = skin.get("price", 0)
-                        steam_price = skin.get("listingPriceUsd", "N/A")
-                        status = skin.get("status", "N/A")
+                        category = skin.get('info', {}).get('category', "N/A")
                         slug = skin.get("slug", "N/A")
                         buy_link = f"https://www.bynogame.com/en/games/cs2-skin/{slug}?id={listing_no}"
+                        status = skin.get("status", "N/A")
                         
                         if status == 2 or status == 3:  # Skip sold items
                             continue
                             
+                        if self.knives_only.get():
+                            if category != "Knives":
+                                continue
+                            try:
+                                price = float(skin.get("price"))
+                            except (ValueError, TypeError):
+                                # Skip if price is invalid
+                                continue
+                            
+                            try:
+                                max_price = float(self.knives_max_price_var.get())
+                            except Exception:
+                                max_price = 0
+                                
+                            if max_price > 0 and price > max_price:
+                                continue
+                                
+                            if self.knives_autosnipe.get():
+                                if listing_no not in self.auto_sniped_skins:
+                                    self.auto_sniped_skins.add(listing_no)
+                                    success, auto_msg = auto_snipe(buy_link, listing_no, target_option=self.steam_username, quantity=None)
+                                    print(f"[DEBUG] Knives Auto sniping executed for {listing_no}: {auto_msg}")
+                                    self.auto_sniped_skins.discard(listing_no)
+                                continue
+                        else:
+                            try:
+                                price = float(skin.get("price"))
+                            except (ValueError, TypeError):
+                                price = 0
+                        steam_price = skin.get("listingPriceUsd", "N/A")
+                        
                         if self.track_mode.get() == "specific":
                             matched_tracker = None
                             matched_key = None
@@ -665,7 +736,7 @@ class SkinTrackerGUI:
                             if listing_no not in self.auto_sniped_skins:
                                 self.auto_sniped_skins.add(listing_no)
                                 current_quantity = matched_tracker.get("Quantity", 0)
-                                success, auto_msg = auto_snipe(buy_link, listing_no, current_quantity)
+                                success, auto_msg = auto_snipe(buy_link, listing_no, target_option=self.steam_username, quantity=current_quantity)
                                 print(f"[DEBUG] Auto sniping executed for {listing_no}: {auto_msg}")
                                 if success:
                                     new_quantity = current_quantity - 1
@@ -678,14 +749,15 @@ class SkinTrackerGUI:
                                     # Remove the listing from auto_sniped_skins so it can be retried if quantity remains
                                     self.auto_sniped_skins.discard(listing_no)
                         
-                        # Store the skin data
+                        # Store the skin data with timestamp
                         self.current_skin_data[listing_no] = {
                             "name": skin_name,
                             "float": float_value,
                             "price": price,
                             "steam_price": steam_price,
                             "discount": discount,
-                            "link": buy_link
+                            "link": buy_link,
+                            "timestamp": time.time()  # Add timestamp for cache management
                         }
                         
                         # Create message with clickable link and quick save button
@@ -736,7 +808,8 @@ class SkinTrackerGUI:
                             "price": price,
                             "steam_price": steam_price,
                             "discount": discount,
-                            "link": buy_link
+                            "link": buy_link,
+                            "timestamp": time.time()  # Add timestamp for cache management
                         }
                         
                         message_parts = {
@@ -942,7 +1015,165 @@ class SkinTrackerGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save saved skins: {str(e)}")
 
+    def open_knives_config_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Configuration Settings")
+        dialog.geometry("400x350")
+        
+        # Enable/Disable Knives Only
+        ttk.Label(dialog, text="Knives Only:", style='Modern.TLabel').pack(pady=5)
+        knives_enabled = ttk.Checkbutton(dialog, text="Enable Knives Only", variable=self.knives_only)
+        knives_enabled.pack(pady=5)
+        
+        ttk.Label(dialog, text="Maximum Price:", style='Modern.TLabel').pack(pady=5)
+        self.knives_max_price_var = tk.StringVar(value="0")
+        max_price_entry = ttk.Entry(dialog, textvariable=self.knives_max_price_var, font=('Segoe UI', 11))
+        max_price_entry.pack(pady=5)
+        
+        ttk.Label(dialog, text="Auto Snipe:", style='Modern.TLabel').pack(pady=5)
+        self.knives_autosnipe = tk.BooleanVar(value=False)
+        autosnipe_check = ttk.Checkbutton(dialog, text="Enable Auto Snipe", variable=self.knives_autosnipe)
+        autosnipe_check.pack(pady=5)
+
+        # Add Steam Username section
+        ttk.Separator(dialog, orient='horizontal').pack(fill='x', pady=10)
+        ttk.Label(dialog, text=f"Current Steam Username: {self.steam_username}", style='Modern.TLabel').pack(pady=5)
+        username_button = ModernButton(dialog, text="Set Steam Username", 
+                                     command=self.show_steam_username_dialog)
+        username_button.pack(pady=5)
+
+        def apply_knives_config():
+            try:
+                max_price = float(self.knives_max_price_var.get())
+                self.knives_max_price_var.set(str(max_price))
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Error", "Please enter a valid number for maximum price")
+
+        ttk.Button(dialog, text="Apply", command=apply_knives_config).pack(pady=20)
+
+    def save_window_settings(self):
+        """Save the current window geometry to a config file"""
+        settings = {
+            'geometry': self.root.geometry()
+        }
+        try:
+            with open('window_settings.json', 'w') as f:
+                json.dump(settings, f)
+        except Exception as e:
+            print(f"Error saving window settings: {e}")
+
+    def load_window_settings(self):
+        """Load and apply saved window geometry"""
+        try:
+            with open('window_settings.json', 'r') as f:
+                settings = json.load(f)
+                geometry = settings.get('geometry', '800x600')
+                
+                # Validate the geometry string
+                try:
+                    # Parse the geometry string
+                    parts = geometry.replace('+', 'x').split('x')
+                    width, height = int(parts[0]), int(parts[1])
+                    
+                    # Get screen dimensions
+                    screen_width = self.root.winfo_screenwidth()
+                    screen_height = self.root.winfo_screenheight()
+                    
+                    # Ensure window is not larger than screen
+                    width = min(width, screen_width)
+                    height = min(height, screen_height)
+                    
+                    # If there are position coordinates, ensure they're on screen
+                    if len(parts) == 4:
+                        x, y = int(parts[2]), int(parts[3])
+                        x = max(0, min(x, screen_width - width))
+                        y = max(0, min(y, screen_height - height))
+                        geometry = f"{width}x{height}+{x}+{y}"
+                    else:
+                        geometry = f"{width}x{height}"
+                    
+                    self.root.geometry(geometry)
+                except (ValueError, IndexError):
+                    self.root.geometry('800x600')  # Fallback to default
+        except FileNotFoundError:
+            self.root.geometry('800x600')  # Default size for first run
+        except Exception as e:
+            print(f"Error loading window settings: {e}")
+            self.root.geometry('800x600')  # Fallback to default
+
+    def on_closing(self):
+        """Handle window closing event"""
+        self.save_window_settings()
+        self.is_tracking = False  # Stop tracking threads
+        self.is_high_discount_tracking = False
+        # Force cleanup before closing
+        self.cleanup_skin_cache(force=True)
+        self.root.destroy()
+
+    def load_steam_username(self):
+        """Load the saved Steam username for auto-buy functionality"""
+        steam_username_file = "steam_username.txt"
+        if os.path.exists(steam_username_file):
+            try:
+                with open(steam_username_file, 'r') as f:
+                    saved_username = f.read().strip()
+                    if saved_username:
+                        self.steam_username = saved_username
+                        print(f"Loaded saved Steam username: {self.steam_username}")
+            except Exception as e:
+                print(f"Could not load saved Steam username: {e}")
+    
+    def save_steam_username(self, username):
+        """Save the Steam username to a config file for future use"""
+        try:
+            with open("steam_username.txt", 'w') as f:
+                f.write(username)
+            self.steam_username = username
+            print(f"Saved Steam username: {username}")
+            return True
+        except Exception as e:
+            print(f"Could not save Steam username: {e}")
+            return False
+                
+    def show_steam_username_dialog(self):
+        """Dialog to set the Steam username for auto-buy"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Set Steam Username")
+        dialog.geometry("300x150")
+        
+        ttk.Label(dialog, text="Enter Steam username to select in Seçiniz menu:").pack(pady=10)
+        username_entry = ttk.Entry(dialog, font=('Segoe UI', 11))
+        username_entry.insert(0, self.steam_username)  # Pre-fill with current username
+        username_entry.pack(pady=5)
+        
+        def on_ok():
+            username = username_entry.get().strip()
+            if username:
+                self.save_steam_username(username)
+                messagebox.showinfo("Success", f"Steam username set to: {username}")
+            dialog.destroy()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10, fill='x')
+        
+        cancel_button = ttk.Button(button_frame, text="Cancel", command=on_cancel, style='Modern.TButton')
+        cancel_button.pack(side='left', padx=10, expand=True)
+        
+        ok_button = ttk.Button(button_frame, text="OK", command=on_ok, style='Modern.TButton')
+        ok_button.pack(side='right', padx=10, expand=True)
+        
+        dialog.grab_set()
+        self.root.wait_window(dialog)
+
 def main():
+    from playwright_sniper import start_arc_browser
+    arc_started = start_arc_browser()
+    if not arc_started:
+        print("[DEBUG] Arc Browser remote debugging not started. Please ensure it's running with remote debugging enabled.")
     root = tk.Tk()
     app = SkinTrackerGUI(root)
     root.mainloop()

@@ -4,5 +4,35 @@
         "threshold": 30.0,
         "AutoBuy": 1,
         "Quantity": 1
+    },
+    "USP-S | Kill Confirmed (Factory New)": {
+        "type": "price",
+        "threshold": 1000.0,
+        "AutoBuy": 0,
+        "Quantity": 1
+    },
+    "USP-S | Kill Confirmed (Minimal Wear)": {
+        "type": "price",
+        "threshold": 1000.0,
+        "AutoBuy": 0,
+        "Quantity": 1
+    },
+    "USP-S | Kill Confirmed (Field-Tested)": {
+        "type": "price",
+        "threshold": 1000.0,
+        "AutoBuy": 0,
+        "Quantity": 1
+    },
+    "USP-S | Kill Confirmed (Well-Worn)": {
+        "type": "price",
+        "threshold": 1000.0,
+        "AutoBuy": 0,
+        "Quantity": 1
+    },
+    "USP-S | Kill Confirmed (Battle-Scarred)": {
+        "type": "price",
+        "threshold": 1000.0,
+        "AutoBuy": 0,
+        "Quantity": 1
     }
 }

@@ -2,6 +2,7 @@ import requests
 import time
 from datetime import datetime
 import json
+import os
 
 # Globals used by the Frontend
 tracked_skins = {}  # Dictionary to store skin names and their thresholds
@@ -31,17 +32,52 @@ def fetch_skins(limit=50):
     except requests.exceptions.RequestException as e:
         print(f"Error fetching skins: {e}")
         return []
-
 def save_tracked_skins():
     try:
         with open('tracked_skins.json', 'w') as f:
             json.dump(tracked_skins, f, indent=4)
+        return True
     except Exception as e:
         print(f"Error saving tracked skins: {e}")
+        return False
 
 def save_saved_skins():
     try:
         with open('saved_skins.json', 'w') as f:
             json.dump(saved_skins, f, indent=4)
+        return True
     except Exception as e:
         print(f"Error saving saved skins: {e}")
+        return False
+
+def load_tracked_skins():
+    """Load tracked skins from JSON file"""
+    global tracked_skins
+    try:
+        if os.path.exists('tracked_skins.json'):
+            with open('tracked_skins.json', 'r') as f:
+                tracked_skins = json.load(f)
+            return True
+        return False
+    except Exception as e:
+        print(f"Error loading tracked skins: {e}")
+        return False
+
+def load_saved_skins():
+    """Load saved skins from JSON file"""
+    global saved_skins
+    try:
+        if os.path.exists('saved_skins.json'):
+            with open('saved_skins.json', 'r') as f:
+                saved_skins = json.load(f)
+            return True
+        return False
+    except Exception as e:
+        print(f"Error loading saved skins: {e}")
+        return False
+
+def initialize_data():
+    """Initialize application data by loading saved files"""
+    load_tracked_skins()
+    load_saved_skins()
+
