@@ -239,6 +239,7 @@ python monitor_and_snipe.py "https://www.bynogame.com/en/games/cs2/skin/123456" 
    - Verify your Steam username is correct
    - Ensure you're logged into ByNoGame in your browser
    - Check if the item is still available
+     - Note: While this is typically handled by the ByNoGame API, there may be delays in API updates
    - Make sure you have sufficient funds in your account
 
 4. **Sound Notification Issues**
@@ -254,7 +255,13 @@ The script creates log files:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+This project is not actively maintained. While you can fork the repository for your own use, I am not actively reviewing or accepting pull requests at this time.
+
+## Additional Notes
+
+This project represents a significant milestone in my development journey. It's my first fully completed project that meets its intended goals, and I'm proud of what it has become. After several previous attempts at different projects in my younger years, this one finally came together the way I envisioned it.
+
+I hope this tool proves useful for your needs. Your satisfaction with its functionality would make all the effort worthwhile. Thank you for checking out my project, and have a wonderful day!
 
 ## License
 
